@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition, useRef, useEffect } from 'react';
-import { Archive, Scissors, Loader2, Play, Pause, Square, Volume2 } from 'lucide-react';
+import { Archive, Scissors, Loader2, Play, Pause, Square, Volume2, FolderOpen } from 'lucide-react';
 import { separateStems } from '@/app/actions/stems';
 import { useMultiTrackPlayer } from '@/hooks/audio/useMultiTrackPlayer';
 

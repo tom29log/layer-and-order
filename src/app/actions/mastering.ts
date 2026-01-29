@@ -45,20 +45,52 @@ export async function startMastering(projectId: string, inputUrl: string) {
         // REAL MODE: Call Replicate API
         // ---------------------------------------------------------
 
-        // NOTE: Replace with actual Mastering Model
-        // For MVP, using a music generation model as placeholder since no public mastering model is standard.
-        const modelVersion = "7a76a8258b23fae65c5a22debb8841d1d7e816b75c2f24218cd2bd8573507960"; // meta/musicgen
+        // 1. Get the latest version of the Audio Super Resolution model
+        // Using nateraw/audio-super-resolution for "Mastering" (Enhancement)
+        let modelVersion = '';
+        try {
+            const model = await replicate.models.get("nateraw", "audio-super-resolution");
+            modelVersion = model.latest_version?.id || "0e453d5e4c2e0ef4f8d38a6167053dda09cf3c8dbca2355cde61dca55a915bc5"; // Known good hash
+        } catch (e) {
+            console.error("Failed to fetch model version, using fallback:", e);
+            modelVersion = "0e453d5e4c2e0ef4f8d38a6167053dda09cf3c8dbca2355cde61dca55a915bc5"; // Fallback to known hash
+        }
 
+        console.log('Starting Mastering with Model:', modelVersion);
+
+        // 2. Create Prediction
         const prediction = await replicate.predictions.create({
             version: modelVersion,
             input: {
-                prompt: "mastering, studio quality, premium sound",
-                model_version: "stereo-large",
-                // audio: inputUrl // Real model would take audio input
+                input_file: inputUrl,
+                ddim_steps: 50, // Default steps for good quality
             },
         });
 
-        return { success: true, predictionId: prediction.id, status: prediction.status };
+        // 3. Poll for Completion (Max 5 minutes)
+        let result = prediction;
+        const maxAttempts = 60; // 60 * 5s = 5 min
+
+        for (let i = 0; i < maxAttempts; i++) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+
+            result = await replicate.predictions.get(prediction.id);
+
+            if (result.status === 'succeeded' || result.status === 'failed' || result.status === 'canceled') {
+                break;
+            }
+        }
+
+        if (result.status !== 'succeeded') {
+            return { error: `Mastering failed or timed out: ${result.error || result.status}` };
+        }
+
+        return {
+            success: true,
+            predictionId: result.id,
+            status: result.status,
+            output: result.output
+        };
 
     } catch (error) {
         console.error("Mastering failed:", error);

@@ -47,7 +47,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
     };
 
     return (
-        <div className="grid grid-cols-12 gap-4 p-4 items-center hover:bg-white/5 transition-colors group">
+        <div className="grid grid-cols-12 gap-4 py-2 px-4 items-center hover:bg-white/5 transition-colors group border-b border-border/50 last:border-0">
             {/* Title Column */}
             <div className="col-span-4 md:col-span-3 flex items-center gap-2">
                 {isEditing ? (

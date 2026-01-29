@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useTransition, useRef, useEffect } from 'react';
-import { Archive, Music, FolderOpen, Scissors, Loader2, Play, Pause, Square, Volume2, VolumeX } from 'lucide-react';
+import { Archive, Scissors, Loader2, Play, Pause, Square, Volume2 } from 'lucide-react';
 import { separateStems } from '@/app/actions/stems';
 import { useMultiTrackPlayer } from '@/hooks/audio/useMultiTrackPlayer';
-import { Knob } from '@/components/shared/Knob';
 
 interface Stem {
     id: string;
@@ -12,6 +11,7 @@ interface Stem {
     file_path: string;
     file_size: number;
     stem_type: string;
+    url?: string;
 }
 
 interface SeparatedStems {
@@ -28,7 +28,6 @@ interface StemArchiveInterfaceProps {
 }
 
 export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: StemArchiveInterfaceProps) {
-    const [selectedStems, setSelectedStems] = useState<string[]>([]);
     const [selectedForSeparation, setSelectedForSeparation] = useState<string | null>(null);
     const [isSeparating, setIsSeparating] = useState(false);
     const [separationProgress, setSeparationProgress] = useState(0);
@@ -36,18 +35,36 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
     const [isMockMode, setIsMockMode] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isPending, startTransition] = useTransition();
-    const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Track Configuration for MultiTrackPlayer
-    const tracks = separatedStems ? [
-        { key: 'vocals', name: 'Vocals', url: separatedStems.vocals },
-        { key: 'drums', name: 'Drums', url: separatedStems.drums },
-        { key: 'bass', name: 'Bass', url: separatedStems.bass },
-        { key: 'other', name: 'Other', url: separatedStems.other },
-    ] : [];
+    // 1. Identify Master Track strictly
+    // Strategy: Look for explicit type 'master', or name match, OR fall back to finding one that is NOT a separated stem type.
+    const knownStemTypes = ['vocals', 'drums', 'bass', 'other', 'synth'];
+    let masterTrack = stems.find(s => s.stem_type === 'master' || s.name.toLowerCase().includes('original') || s.name.toLowerCase().includes('master'));
 
-    // Audio Engine Hook
+    // Fallback: If no master found, look for a track that is NOT in knownStemTypes
+    if (!masterTrack) {
+        masterTrack = stems.find(s => !knownStemTypes.includes(s.stem_type || ''));
+    }
+
+    // 2. Filter Tracks for Player/Mixer (Exclude Master)
+    const tracks = separatedStems ? [
+        { key: 'vocals', type: 'vocals', name: 'Vocals', url: separatedStems.vocals },
+        { key: 'drums', type: 'drums', name: 'Drums', url: separatedStems.drums },
+        { key: 'bass', type: 'bass', name: 'Bass', url: separatedStems.bass },
+        { key: 'other', type: 'other', name: 'Other', url: separatedStems.other },
+    ] : stems
+        .filter(s => s.id !== masterTrack?.id) // Strictly exclude the identified master track
+        .filter(s => s.url && s.url.length > 0)
+        .map(s => ({
+            key: s.id, // UNIQUE ID
+            type: s.stem_type || 'other',
+            name: s.name,
+            url: s.url || '',
+            id: s.id
+        }));
+
+    // Audio Engine Hook (Expects objects with 'key' and 'url')
     const {
         isReady,
         isPlaying,
@@ -59,11 +76,18 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
     } = useMultiTrackPlayer(tracks);
 
     // Local State for UI feedback
-    const [volumes, setVolumes] = useState<Record<string, number>>({
-        vocals: 100, drums: 100, bass: 100, other: 100
-    });
+    const [volumes, setVolumes] = useState<Record<string, number>>({});
     const [soloTracks, setSoloTracks] = useState<string[]>([]);
     const [mutedTracks, setMutedTracks] = useState<string[]>([]);
+
+    useEffect(() => {
+        const initialVolumes: Record<string, number> = {};
+        tracks.forEach(t => {
+            initialVolumes[t.key] = 100;
+        });
+        setVolumes(initialVolumes);
+    }, [separatedStems, stems]);
+
 
     // Handle Volume Change
     const handleVolumeChange = (key: string, val: number) => {
@@ -80,9 +104,6 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
         setSoloTracks(newSolo);
         toggleSolo(key, newSolo.length > 0 && newSolo.includes(key));
 
-        // Update all tracks solo state to ensure proper exclusivity if needed
-        // But hook handles individual channel solo. Tone.js solo works by muting others.
-        // If we have multiple solos, Tone.js handles summing them.
         tracks.forEach(t => {
             const isTrackSoloed = newSolo.includes(t.key);
             toggleSolo(t.key, isTrackSoloed);
@@ -98,16 +119,11 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
         toggleMute(key, newMuted.includes(key));
     };
 
-    const handleUploadClick = () => {
-        fileInputRef.current?.click();
-    };
-
     const handleSeparateStems = async () => {
-        // Use selected stem or fallback to originalAudioUrl
-        const audioToSeparate = selectedForSeparation || originalAudioUrl;
+        const audioToSeparate = originalAudioUrl;
 
         if (!audioToSeparate) {
-            setError('Select a track to separate or upload audio first');
+            setError('No audio source available for separation');
             return;
         }
 
@@ -115,30 +131,96 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
         setError(null);
         setSeparationProgress(0);
 
-        // Simulate progress updates
         const progressInterval = setInterval(() => {
-            setSeparationProgress(prev => Math.min(prev + Math.random() * 15, 90));
+            setSeparationProgress(prev => {
+                if (prev < 30) return prev + 2;
+                if (prev < 70) return prev + 0.5;
+                if (prev < 90) return prev + 0.1;
+                return prev;
+            });
         }, 1000);
 
         startTransition(async () => {
             try {
-                const result = await separateStems(projectId, audioToSeparate!);
+                const startResult = await separateStems(projectId, audioToSeparate!);
 
-                clearInterval(progressInterval);
-
-                if (result.success && result.stems) {
-                    setSeparationProgress(100);
-                    setSeparatedStems(result.stems);
-                    if (result.isMock) {
-                        setIsMockMode(true);
-                    }
-                } else {
-                    setError(result.error || 'Failed to separate stems');
+                if (!startResult.success) {
+                    setError(startResult.error || 'Failed to start separation');
+                    setIsSeparating(false);
+                    clearInterval(progressInterval);
+                    return;
                 }
+
+                if (startResult.isMock && startResult.stems) {
+                    setSeparationProgress(100);
+                    setSeparatedStems(startResult.stems);
+                    setIsMockMode(true);
+                    setIsSeparating(false);
+                    clearInterval(progressInterval);
+                    return;
+                }
+
+                if (startResult.status === 'succeeded' && startResult.stems) {
+                    setSeparationProgress(100);
+                    setSeparatedStems(startResult.stems);
+                    setIsSeparating(false);
+                    clearInterval(progressInterval);
+                    return;
+                }
+
+                const predictionId = startResult.predictionId;
+                if (!predictionId) {
+                    setError('No prediction ID returned');
+                    setIsSeparating(false);
+                    clearInterval(progressInterval);
+                    return;
+                }
+
+                const { checkStemStatus, saveSeparatedStems } = await import('@/app/actions/stems');
+
+                const pollInterval = setInterval(async () => {
+                    const statusResult = await checkStemStatus(predictionId);
+
+                    if (!statusResult.success) {
+                        setError(statusResult.error || 'Polling failed');
+                        clearInterval(pollInterval);
+                        clearInterval(progressInterval);
+                        setIsSeparating(false);
+                        return;
+                    }
+
+                    if (statusResult.status === 'succeeded' && statusResult.stems) {
+                        clearInterval(pollInterval);
+                        clearInterval(progressInterval);
+                        setSeparationProgress(100);
+
+                        try {
+                            const saveResult = await saveSeparatedStems(projectId, statusResult.stems);
+                            if (!saveResult.success) {
+                                setError(`Save Error: ${saveResult.error}`);
+                            } else {
+                                setSeparatedStems(null);
+                            }
+                        } catch (e) {
+                            console.error("Auto-save failed", e);
+                            setError('Auto-save failed');
+                        }
+
+                        setIsSeparating(false);
+
+                    } else if (statusResult.status === 'failed' || statusResult.status === 'canceled') {
+                        clearInterval(pollInterval);
+                        clearInterval(progressInterval);
+                        setError(statusResult.error || 'Separation failed during processing');
+                        setIsSeparating(false);
+                    }
+                }, 3000);
+
             } catch (err) {
+                console.error(err);
                 setError('An error occurred during stem separation');
-            } finally {
                 setIsSeparating(false);
+                clearInterval(progressInterval);
             }
         });
     };
@@ -156,8 +238,8 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
 
     return (
         <div className="space-y-8">
-            {/* Header */}
-            <div className="border-b border-border pb-6">
+            {/* Header / Title Only */}
+            <div className="border-b border-border pb-6 flex justify-between items-end">
                 <div className="flex items-center gap-4 mb-4">
                     <div className="w-12 h-12 rounded-full border-2 border-cyan-500 bg-cyan-500/20 flex items-center justify-center">
                         <Archive size={20} className="text-cyan-500" />
@@ -173,14 +255,13 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
                 </div>
             </div>
 
-            {/* Separation Progress */}
             {isSeparating && (
                 <div className="p-6 border border-cyan-500/30 bg-cyan-500/5 animate-in fade-in">
                     <div className="flex items-center gap-4 mb-4">
                         <Loader2 size={24} className="text-cyan-500 animate-spin" />
                         <div>
                             <h3 className="font-mono text-sm text-white">AI Stem Separation in Progress</h3>
-                            <p className="font-mono text-xs text-muted">Separating into 4 tracks: Vocals, Drums, Bass, Other</p>
+                            <p className="font-mono text-xs text-muted">Processing... (This usually takes 1-3 minutes)</p>
                         </div>
                     </div>
                     <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
@@ -193,193 +274,149 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
                 </div>
             )}
 
-            {/* Separated Stems Result */}
-            {separatedStems && !isSeparating && (
-                <div className="p-6 border border-emerald-500/30 bg-emerald-500/5 animate-in fade-in">
-                    {/* Header with Global Controls */}
-                    <div className="flex items-center justify-between mb-6">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full border-2 border-emerald-500 bg-emerald-500/20 flex items-center justify-center">
-                                <Scissors size={16} className="text-emerald-500" />
-                            </div>
-                            <div>
-                                <h3 className="font-mono text-sm text-white">Stems Separated Successfully!</h3>
-                                <p className="font-mono text-xs text-muted">
-                                    4 tracks extracted {isMockMode && '(DEMO MODE)'}
-                                </p>
-                            </div>
-                        </div>
+            {/* Error Message */}
+            {
+                error && (
+                    <div className="p-4 border border-red-500/50 bg-red-500/10 text-red-500 font-mono text-sm">
+                        {error}
+                    </div>
+                )
+            }
 
-                        {/* Global Playback Controls */}
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => togglePlay()}
-                                disabled={!isReady}
-                                className={`w-12 h-12 rounded-full border-2 flex items-center justify-center transition-all duration-200
+            {/* Main Unified List */}
+            {tracks.length > 0 || masterTrack ? (
+                <div className="space-y-4 animate-in fade-in">
+
+                    {/* 1. Master Track (The Controller) */}
+                    {masterTrack && (
+                        <div className="group p-6 border border-border bg-surface/30 opacity-100 rounded-lg relative overflow-hidden flex items-center justify-between">
+                            {/* Track Info */}
+                            <div className="relative z-10 w-2/3">
+                                <h4 className="text-lg font-heading font-light text-white truncate mb-1">{masterTrack.name}</h4>
+                                <span className="uppercase tracking-widest text-xs font-mono text-muted">ORIGINAL TRACK (MASTER)</span>
+                            </div>
+
+                            {/* GLOBAL PLAYBACK CONTROLS (Only visible if stems are ready) */}
+                            <div className="flex items-center gap-3 relative z-10">
+                                <button
+                                    onClick={() => togglePlay()}
+                                    disabled={!isReady}
+                                    className={`w-12 h-12 rounded-full border-2 flex items-center justify-center transition-all duration-200
                                     ${isPlaying
-                                        ? 'border-emerald-500 bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.4)]'
-                                        : 'border-emerald-500 text-emerald-500 hover:bg-emerald-500/10'
-                                    }
+                                            ? 'border-emerald-500 bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.4)]'
+                                            : 'border-emerald-500 text-emerald-500 hover:bg-emerald-500/10'
+                                        }
                                     ${!isReady ? 'opacity-50 cursor-wait' : ''}
                                 `}
-                            >
-                                {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-1" />}
-                            </button>
-                            <button
-                                onClick={stop}
-                                disabled={!isReady}
-                                className="w-10 h-10 rounded-full border border-border bg-surface flex items-center justify-center hover:bg-white hover:text-black transition-colors disabled:opacity-50"
-                            >
-                                <Square size={14} />
-                            </button>
+                                >
+                                    {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-1" />}
+                                </button>
+                                <button
+                                    onClick={stop}
+                                    disabled={!isReady}
+                                    className="w-10 h-10 rounded-full border border-border bg-surface flex items-center justify-center hover:bg-white hover:text-black transition-colors disabled:opacity-50"
+                                >
+                                    <Square size={14} />
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* Stem Tracks with Solo/Mute & Knobs */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* 2. Separated Stems (Slim Rows) */}
+                    <div className="space-y-3 pt-2">
                         {tracks.map((track) => {
-                            const colorClass = stemTypeColors[track.key] || stemTypeColors['other'];
+                            // Style Logic - Use track.type
+                            let colorKey = 'other';
+                            const tName = track.name.toLowerCase();
+                            const tType = (track as any).type || '';
+
+                            if (tType === 'vocals' || tName.includes('vocal')) colorKey = 'vocals';
+                            else if (tType === 'drums' || tName.includes('drum')) colorKey = 'drums';
+                            else if (tType === 'bass' || tName.includes('bass')) colorKey = 'bass';
+                            else if (tType === 'other' || tName.includes('other')) colorKey = 'other';
+
+                            const colorClass = stemTypeColors[colorKey] || stemTypeColors['other'];
+
                             const isSolo = soloTracks.includes(track.key);
                             const isMuted = mutedTracks.includes(track.key);
-                            const isActive = soloTracks.length === 0 || isSolo; // Visual dimming if not soloed
+                            const isActive = soloTracks.length === 0 || isSolo;
 
                             return (
                                 <div
-                                    key={track.key}
-                                    className={`p-4 border transition-all flex flex-col justify-between h-full ${colorClass} ${!isActive || isMuted ? 'opacity-60' : ''}`}
+                                    key={track.key + track.url}
+                                    className={`w-full flex items-center gap-4 bg-surface/50 border border-border p-3 rounded-lg transition-all ${!isActive || isMuted ? 'opacity-50' : 'opacity-100'}`}
                                 >
-                                    {/* Top Section */}
-                                    <div>
-                                        <div className="flex items-center justify-between mb-3">
-                                            <Music size={20} />
-                                            <div className="flex gap-1">
-                                                {/* Solo Button */}
-                                                <button
-                                                    onClick={() => handleToggleSolo(track.key)}
-                                                    className={`px-2 py-1 text-[10px] font-mono uppercase border transition-colors ${isSolo
-                                                        ? 'bg-yellow-500 text-black border-yellow-500'
-                                                        : 'border-current hover:bg-current/20'
-                                                        }`}
-                                                >
-                                                    S
-                                                </button>
-                                                {/* Mute Button */}
-                                                <button
-                                                    onClick={() => handleToggleMute(track.key)}
-                                                    className={`px-2 py-1 text-[10px] font-mono uppercase border transition-colors ${isMuted
-                                                        ? 'bg-red-500 text-white border-red-500'
-                                                        : 'border-current hover:bg-current/20'
-                                                        }`}
-                                                >
-                                                    M
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <h4 className="font-mono text-sm uppercase mb-4">{track.name}</h4>
+                                    {/* Name Only */}
+                                    <div className="w-24 shrink-0 pl-2">
+                                        <h4 className="font-mono text-sm uppercase text-white truncate">{track.name}</h4>
+                                        <span className="text-[10px] text-muted font-mono uppercase">{colorKey}</span>
                                     </div>
 
-                                    {/* Control Section */}
-                                    <div className="flex flex-col items-center gap-4 mt-auto">
-                                        <Knob
-                                            value={volumes[track.key]}
-                                            onChange={(val) => handleVolumeChange(track.key, val)}
-                                            size={60}
-                                            label="LEVEL"
-                                            color={isMuted ? 'bg-red-500' : 'bg-cyan-500'}
-                                        />
+                                    {/* Controls - Vertical Stack */}
+                                    <div className="flex flex-col gap-1">
+                                        <button
+                                            onClick={() => handleToggleSolo(track.key)}
+                                            className={`w-8 h-6 flex items-center justify-center text-[9px] font-mono border rounded transition-colors ${isSolo
+                                                ? 'bg-yellow-500 text-black border-yellow-500'
+                                                : 'border-white/20 hover:bg-white/10'
+                                                }`}
+                                        >
+                                            S
+                                        </button>
+                                        <button
+                                            onClick={() => handleToggleMute(track.key)}
+                                            className={`w-8 h-6 flex items-center justify-center text-[9px] font-mono border rounded transition-colors ${isMuted
+                                                ? 'bg-red-500 text-white border-red-500'
+                                                : 'border-white/20 hover:bg-white/10'
+                                                }`}
+                                        >
+                                            M
+                                        </button>
+                                    </div>
 
+                                    {/* Volume Slider (Fluorescent Blue) */}
+                                    <div className="flex-1 flex items-center gap-3 px-4">
+                                        <Volume2 size={14} className="text-muted" />
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={volumes[track.key] ?? 100}
+                                            onChange={(e) => handleVolumeChange(track.key, parseInt(e.target.value))}
+                                            className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer 
+                                            [&::-webkit-slider-thumb]:appearance-none 
+                                            [&::-webkit-slider-thumb]:w-3 
+                                            [&::-webkit-slider-thumb]:h-3 
+                                            [&::-webkit-slider-thumb]:rounded-full 
+                                            [&::-webkit-slider-thumb]:bg-cyan-400
+                                            [&::-moz-range-thumb]:bg-cyan-400
+                                            "
+                                        />
+                                    </div>
+
+                                    {/* Download */}
+                                    {track.url && (
                                         <a
                                             href={track.url}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="font-mono text-[10px] text-muted hover:underline mt-2"
+                                            className="text-[10px] font-mono text-muted hover:text-cyan-500 shrink-0"
                                         >
-                                            Download
+                                            DL
                                         </a>
-                                    </div>
+                                    )}
                                 </div>
                             );
                         })}
                     </div>
                 </div>
-            )}
-
-            {/* Error Message */}
-            {error && (
-                <div className="p-4 border border-red-500/50 bg-red-500/10 text-red-500 font-mono text-sm">
-                    {error}
-                </div>
-            )}
-
-            {/* Existing Stems Grid */}
-            {stems.length > 0 ? (
-                <div>
-                    <h3 className="font-mono text-xs text-muted uppercase mb-4">
-                        Select a track for AI Stem Separation
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {stems.map((stem) => {
-                            const isSelectedForSep = selectedForSeparation === stem.id;
-                            const colorClass = stemTypeColors[stem.stem_type] || stemTypeColors['other'];
-
-                            return (
-                                <div
-                                    key={stem.id}
-                                    onClick={() => {
-                                        console.log('Selecting stem:', stem.id, stem.file_path);
-                                        setSelectedForSeparation(stem.id);
-                                    }}
-                                    className={`group p-4 border cursor-pointer transition-all ${isSelectedForSep
-                                        ? 'border-cyan-500 bg-cyan-500/20 ring-2 ring-cyan-500/50'
-                                        : 'border-border bg-surface/50 hover:border-cyan-500/50'
-                                        }`}
-                                >
-                                    <div className="flex items-start justify-between mb-3">
-                                        <div className={`w-8 h-8 rounded border flex items-center justify-center ${colorClass}`}>
-                                            <Music size={14} />
-                                        </div>
-                                        {isSelectedForSep && (
-                                            <span className="text-[10px] font-mono text-cyan-500 uppercase">Selected</span>
-                                        )}
-                                    </div>
-                                    <h4 className="text-sm font-mono text-white truncate mb-1">{stem.name}</h4>
-                                    <div className="flex justify-between text-[10px] font-mono text-muted">
-                                        <span className="uppercase">{stem.stem_type}</span>
-                                        <span>{(stem.file_size / 1024 / 1024).toFixed(2)} MB</span>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    {/* Start Engine Button - Mastering Style (Hidden if already separated) */}
-                    {!separatedStems && (
-                        <div className="mt-8 flex justify-center">
-                            <button
-                                onClick={handleSeparateStems}
-                                disabled={!selectedForSeparation || isSeparating}
-                                className="
-                                    group relative overflow-hidden bg-neutral-900 border border-border px-10 py-4 
-                                    font-mono text-sm uppercase tracking-widest text-neutral-400
-                                    glow-cyan
-                                    disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-neutral-400 disabled:hover:border-border disabled:hover:shadow-none
-                                "
-                            >
-                                <span className="relative z-10 flex items-center gap-3">
-                                    {isSeparating ? <Loader2 size={18} className="animate-spin" /> : <Scissors size={18} />}
-                                    {isSeparating ? 'Processing...' : 'Start Engine'}
-                                </span>
-                                <div className="absolute inset-0 bg-cyan-900/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                            </button>
-                        </div>
-                    )}
-                </div>
-            ) : !separatedStems && (
+            ) : (
+                // Empty State
                 <div className="text-center py-16 border border-dashed border-border">
                     <FolderOpen size={48} className="mx-auto text-muted mb-4" />
                     <h3 className="text-lg font-heading font-light text-white mb-2">No Stems Yet</h3>
                     <p className="text-muted text-sm font-mono mb-6">
-                        Use AI Separation or upload your stems manually
+                        Use AI Separation to create stems from your original track.
                     </p>
                     <button
                         onClick={handleSeparateStems}
@@ -391,6 +428,7 @@ export function StemArchiveInterface({ projectId, stems, originalAudioUrl }: Ste
                     </button>
                 </div>
             )}
+
         </div>
     );
 }

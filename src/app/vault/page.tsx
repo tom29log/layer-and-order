@@ -1,6 +1,6 @@
 import { createClient } from '@/utils/supabase/server';
 import { VaultLayout } from "@/components/vault/VaultLayout";
-import { ProjectCard } from "@/components/vault/ProjectCard";
+import { ProjectRow } from "@/components/vault/ProjectRow";
 import { EmptyState } from "@/components/vault/EmptyState";
 import Link from 'next/link';
 import { User, Settings } from 'lucide-react';
@@ -28,7 +28,7 @@ export default async function VaultPage() {
 
     return (
         <VaultLayout>
-            <div className="flex flex-col gap-8 animate-in fade-in duration-500">
+            <div className="max-w-4xl mx-auto flex flex-col gap-8 animate-in fade-in duration-500">
                 {/* Profile Section */}
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-border pb-6">
                     <div className="flex items-center gap-4">
@@ -80,12 +80,23 @@ export default async function VaultPage() {
                     <span className="font-mono text-xs text-muted">{projects?.length || 0} ITEMS</span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {/* Real Data Rendering */}
+                <div className="border border-border rounded-lg overflow-hidden bg-surface/30">
+                    {/* Table Header */}
+                    <div className="grid grid-cols-12 gap-4 p-4 border-b border-border bg-black/50 text-xs font-mono text-muted uppercase tracking-wider">
+                        <div className="col-span-4 md:col-span-3">Title</div>
+                        <div className="col-span-3 md:col-span-3">Artist</div>
+                        <div className="col-span-2 text-center">BPM</div>
+                        <div className="col-span-2 text-center">Key</div>
+                        <div className="col-span-1 text-right">Time</div>
+                    </div>
+
+                    {/* Table Body */}
                     {projects && projects.length > 0 ? (
-                        projects.map((project, i) => (
-                            <ProjectCard key={project.id} project={project} index={i} />
-                        ))
+                        <div className="divide-y divide-border">
+                            {projects.map((project) => (
+                                <ProjectRow key={project.id} project={project} />
+                            ))}
+                        </div>
                     ) : (
                         <div className="col-span-full">
                             <EmptyState />

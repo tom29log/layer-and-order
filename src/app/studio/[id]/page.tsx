@@ -28,9 +28,16 @@ export default async function StudioPage({ params }: { params: Promise<{ id: str
 
     // For AI Mastering, we take the first stem as the "Original Mix"
     let originalAudioUrl = undefined;
+    let stemsWithUrls = [];
+
     if (stems && stems.length > 0) {
         const firstStem = stems[0];
         originalAudioUrl = await getDownloadUrl(firstStem.file_path);
+
+        stemsWithUrls = await Promise.all(stems.map(async (stem) => ({
+            ...stem,
+            url: await getDownloadUrl(stem.file_path)
+        })));
     }
 
     return (
@@ -58,7 +65,7 @@ export default async function StudioPage({ params }: { params: Promise<{ id: str
                 <StudioContainer
                     projectId={project.id}
                     originalAudioUrl={originalAudioUrl}
-                    stems={stems || []}
+                    stems={stemsWithUrls}
                 />
             </div>
         </VaultLayout>

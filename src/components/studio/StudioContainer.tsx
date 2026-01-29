@@ -14,6 +14,7 @@ interface Stem {
     file_path: string;
     file_size: number;
     stem_type: string;
+    url?: string;
 }
 
 interface StudioContainerProps {

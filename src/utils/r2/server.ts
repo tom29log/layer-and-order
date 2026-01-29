@@ -47,3 +47,14 @@ export async function getDownloadUrl(key: string, expiresIn = 3600) {
 
     return await getSignedUrl(r2Client, command, { expiresIn });
 }
+
+export async function uploadToR2(key: string, body: Buffer | Uint8Array | Blob, contentType: string) {
+    const command = new PutObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+    });
+
+    return await r2Client.send(command);
+}

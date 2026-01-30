@@ -24,8 +24,7 @@ export const metadata: Metadata = {
 };
 
 import { GNB } from "@/components/shared/GNB";
-
-// ... existing imports
+import { Providers } from "./providers";
 
 export default function RootLayout({
   children,
@@ -37,8 +36,10 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${ibmPlexSans.variable} ${jetbrainsMono.variable} antialiased`}
       >
-        <GNB />
-        {children}
+        <Providers>
+          <GNB />
+          {children}
+        </Providers>
       </body>
     </html>
   );

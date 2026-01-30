@@ -52,26 +52,35 @@ export async function GNB() {
 
                 {/* User Info & Sign Out */}
                 <div className="flex items-center gap-3 md:gap-4">
-                    <form action={signOut} className="flex items-center gap-2 md:gap-3">
-                        <div className="flex flex-col items-end">
-                            <span className="text-[10px] md:text-xs font-mono text-white tracking-tight truncate max-w-[120px] md:max-w-none">
-                                {user?.email}
-                            </span>
-                            <span className="text-[8px] md:text-[10px] text-emerald-500 font-mono uppercase tracking-widest">
-                                Authenticated
-                            </span>
-                        </div>
-                        <div className="flex flex-col items-center gap-0.5">
-                            <button
-                                type="submit"
-                                title="로그아웃"
-                                className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center hover:bg-red-500/10 hover:border-red-500 hover:text-red-500 transition-colors"
-                            >
-                                <LogOut size={14} />
-                            </button>
-                            <span className="text-[8px] font-mono text-muted uppercase">logout</span>
-                        </div>
-                    </form>
+                    {user ? (
+                        <form action={signOut} className="flex items-center gap-2 md:gap-3">
+                            <div className="flex flex-col items-end">
+                                <span className="text-[10px] md:text-xs font-mono text-white tracking-tight truncate max-w-[120px] md:max-w-none">
+                                    {user.email}
+                                </span>
+                                <span className="text-[8px] md:text-[10px] text-emerald-500 font-mono uppercase tracking-widest">
+                                    Authenticated
+                                </span>
+                            </div>
+                            <div className="flex flex-col items-center gap-0.5">
+                                <button
+                                    type="submit"
+                                    title="로그아웃"
+                                    className="w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center hover:bg-red-500/10 hover:border-red-500 hover:text-red-500 transition-colors"
+                                >
+                                    <LogOut size={14} />
+                                </button>
+                                <span className="text-[8px] font-mono text-muted uppercase">logout</span>
+                            </div>
+                        </form>
+                    ) : (
+                        <Link
+                            href="/login"
+                            className="text-xs font-mono text-muted hover:text-white transition-colors uppercase tracking-wider"
+                        >
+                            Sign In
+                        </Link>
+                    )}
                 </div>
             </div>
         </nav>

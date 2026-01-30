@@ -5,48 +5,19 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
 import { getDownloadUrl } from '@/utils/r2/server';
-import { unstable_cache } from 'next/cache';
-
-// Enable ISR with revalidation every 60 seconds
-export const revalidate = 60;
-
-// Helper to get cached project data
-const getCachedProject = unstable_cache(
-    async (id: string) => {
-        const supabase = await createClient();
-        const { data: project } = await supabase
-            .from('projects')
-            .select('*')
-            .eq('id', id)
-            .single();
-        return project;
-    },
-    ['project'],
-    { revalidate: 60 }
-);
-
-// Helper to get cached stems data
-const getCachedStems = unstable_cache(
-    async (projectId: string) => {
-        const supabase = await createClient();
-        const { data: stems } = await supabase
-            .from('stems')
-            .select('*')
-            .eq('project_id', projectId);
-        return stems;
-    },
-    ['stems'],
-    { revalidate: 60 }
-);
 
 export default async function StudioPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
+    const supabase = await createClient();
 
-    // Parallel data fetching
-    const [project, stems] = await Promise.all([
-        getCachedProject(id),
-        getCachedStems(id)
+    // Parallel fetch for speed without aggressive caching
+    const [projectResult, stemsResult] = await Promise.all([
+        supabase.from('projects').select('*').eq('id', id).single(),
+        supabase.from('stems').select('*').eq('project_id', id)
     ]);
+
+    const project = projectResult.data;
+    const stems = stemsResult.data;
 
     if (!project) {
         notFound();
@@ -57,6 +28,7 @@ export default async function StudioPage({ params }: { params: Promise<{ id: str
     let stemsWithUrls: any[] = [];
 
     if (stems && stems.length > 0) {
+        // Use standard Promise.all for URLs
         const urlPromises = stems.map(stem => getDownloadUrl(stem.file_path));
         const urls = await Promise.all(urlPromises);
 
